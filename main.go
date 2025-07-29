@@ -1,7 +1,18 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Despance/secure-messenger/certauth"
+)
 
 func main() {
-	fmt.Print("hello world!")
+	fmt.Println("Server Starting")
+
+	ca := certauth.NewCertificateAuthority(":3030")
+
+	err := ca.Start()
+	if err != nil {
+		fmt.Println("error on starting server", err)
+	}
 }
