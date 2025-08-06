@@ -41,7 +41,12 @@ func (ca *CertificateAuthority) Accept() {
 			continue
 		}
 		fmt.Println("Connection accepted", conn.LocalAddr())
+
 		go ca.Listen(conn)
+		n, err := conn.Write([]byte("Hello you are connected to the CA"))
+		if err != nil {
+			fmt.Print(err, n)
+		}
 
 	}
 }
