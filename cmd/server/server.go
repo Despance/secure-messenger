@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 )
 
@@ -56,8 +57,12 @@ func (server *Server) Listen(conn net.Conn) {
 	for {
 		msgSize, err := conn.Read(buf)
 		if err != nil {
-			fmt.Println("Listening error", err)
-			continue
+			if err == io.EOF {
+				fmt.Println("Client disconnected")
+			} else {
+				fmt.Println("Listening error", err)
+			}
+			return
 		}
 		msg := buf[:msgSize]
 
