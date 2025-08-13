@@ -33,8 +33,7 @@ func NewCertificateAuthority(listenAddr string) *CertificateAuthority {
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(10, 0, 0),
 		IsCA:                  true,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 	}
 
@@ -92,60 +91,65 @@ func (ca *CertificateAuthority) Accept() {
 
 func (ca *CertificateAuthority) Listen(conn net.Conn) {
 	buf := make([]byte, 2048)
-	for {
-		msgSize, err := conn.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				fmt.Println("Client disconnected")
-			} else {
-				fmt.Println("Listening error", err)
-			}
-			return
+	msgSize, err := conn.Read(buf)
+	if err != nil {
+		if err == io.EOF {
+			fmt.Println("Client disconnected")
+		} else {
+			fmt.Println("Listening error", err)
 		}
-
-		msg := buf[:msgSize]
-		fmt.Println(string(msg))
-
-		block, _ := pem.Decode(msg)
-
-		if block == nil || block.Type != "CERTIFICATE REQUEST" {
-			fmt.Println("unknown pem block", block.Type)
-			continue
-		}
-
-		csr, err := x509.ParseCertificateRequest(block.Bytes)
-		if err != nil {
-			fmt.Println("error on parse certificate request")
-			continue
-		}
-
-		if err := csr.CheckSignature(); err != nil {
-			fmt.Println("CSR signature invalid:", err)
-			continue
-		}
-
-		certTemplate := &x509.Certificate{
-			SerialNumber:          big.NewInt(2),
-			Subject:               csr.Subject,
-			NotBefore:             time.Now(),
-			NotAfter:              time.Now().AddDate(1, 0, 0),
-			KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-			BasicConstraintsValid: true,
-		}
-
-		certDER, err := x509.CreateCertificate(rand.Reader, certTemplate, ca.ca, csr.PublicKey, ca.caPrivKey)
-		if err != nil {
-			fmt.Println("Cert creation error:", err)
-			continue
-		}
-
-		fmt.Println("Created certificate: ", certTemplate)
-
-		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-		conn.Write(certPEM)
-		fmt.Println("Certificate issued to: ", csr.Subject.CommonName)
-
+		return
 	}
+
+	msg := buf[:msgSize]
+	fmt.Println(string(msg))
+
+	block, _ := pem.Decode(msg)
+
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		fmt.Println("unknown pem block", block.Type)
+	}
+
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		fmt.Println("error on parse certificate request")
+	}
+
+	if err := csr.CheckSignature(); err != nil {
+		fmt.Println("CSR signature invalid:", err)
+	}
+
+	certTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               csr.Subject,
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(1, 0, 0),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, certTemplate, ca.ca, csr.PublicKey, ca.caPrivKey)
+	if err != nil {
+		fmt.Println("Cert creation error:", err)
+	}
+
+	fmt.Println("Created certificate: ", certTemplate)
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	_, err = conn.Write(append(certPEM, caPEM...))
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	err = conn.Close()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println("CA Certificate sent to: ", conn.LocalAddr())
+	fmt.Println("Connection closed")
 }
