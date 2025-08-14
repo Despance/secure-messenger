@@ -16,13 +16,15 @@ import (
 )
 
 type Client struct {
-	serverAddress string
-	caAdress      string
-	connection    net.Conn
-	quit          chan struct{}
-	privKey       *rsa.PrivateKey
-	myCertificate *x509.Certificate
-	caPool        *x509.CertPool
+	serverAddress     string
+	caAdress          string
+	connection        net.Conn
+	quit              chan struct{}
+	privKey           *rsa.PrivateKey
+	myCertificate     *x509.Certificate
+	serverCertificate *x509.Certificate
+	caPool            **x509.CertPool
+	rsaChannel        crypt.SimpleRSA
 }
 
 func NewClient(serverAddress string, caAdress string) *Client {
@@ -44,8 +46,18 @@ func (client *Client) Connect() error {
 	if err != nil {
 		return err
 	}
-
 	client.connection = conn
+
+	client.exchangeCertificates(conn)
+	pubKey, ok := client.serverCertificate.PublicKey.(*rsa.PublicKey)
+
+	if !ok {
+		panic("Error on keytype")
+	}
+
+	client.rsaChannel = crypt.NewSimpleRSA(*client.privKey, *pubKey)
+
+	go client.Read()
 
 	return nil
 }
@@ -61,15 +73,55 @@ func (client *Client) Read() {
 		}
 
 		value := buf[:n]
-		fmt.Println(string(value))
+		fmt.Println("CipherText:", string(value))
+
+		clearText := client.rsaChannel.Decrypt(value)
+
+		fmt.Println("clearText:", clearText)
 	}
 }
 
 func (client *Client) Write(str string) {
-	n, err := client.connection.Write([]byte(str))
+	cipherText := client.rsaChannel.Encrypt(str)
+
+	n, err := client.connection.Write([]byte(cipherText))
 	if err != nil {
 		fmt.Println("Error on writing n bytes:", n, " err:", err)
 	}
+}
+
+func (client *Client) exchangeCertificates(conn net.Conn) {
+	pem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: client.myCertificate.Raw})
+
+	_, err := conn.Write(pem)
+	if err != nil {
+		fmt.Println("Error on writing", err)
+	}
+
+	readBytes := make([]byte, 8192)
+
+	n, err := conn.Read(readBytes)
+	if err != nil {
+		fmt.Println("error on parse certificate", err)
+		return
+	}
+
+	msg := readBytes[:n]
+	cert, err := parseCertificate(&msg)
+	if err != nil {
+		fmt.Println("err on parse", err)
+	}
+
+	_, err = cert.Verify(x509.VerifyOptions{
+		Roots: *client.caPool,
+	})
+	if err != nil {
+		fmt.Println("not valid cert", err)
+		return
+	}
+
+	client.serverCertificate = cert
+	fmt.Println("Certificate exchange is valid")
 }
 
 func main() {
@@ -95,8 +147,8 @@ func main() {
 	}
 }
 
-func parseCertificate(certBytes []byte) (*x509.Certificate, error) {
-	certPem, a := pem.Decode(certBytes)
+func parseCertificate(certBytes *[]byte) (*x509.Certificate, error) {
+	certPem, a := pem.Decode(*certBytes)
 
 	if certPem == nil {
 		fmt.Println("error cert", string(a))
@@ -110,10 +162,10 @@ func parseCertificate(certBytes []byte) (*x509.Certificate, error) {
 
 	certificate, err := x509.ParseCertificate(certPem.Bytes)
 	if err != nil {
-		return nil, errors.New("cant parse certificate")
+		return nil, err
 	}
 
-	certBytes = a
+	*certBytes = a
 	return certificate, nil
 }
 
@@ -135,12 +187,13 @@ func (client *Client) getCertificate() error {
 		return err
 	}
 
-	client.myCertificate, err = parseCertificate(allBytes)
+	client.myCertificate, err = parseCertificate(&allBytes)
 	if err != nil {
 		return err
 	}
+	fmt.Println("First parsed")
 
-	caCert, err := parseCertificate(allBytes)
+	caCert, err := parseCertificate(&allBytes)
 	if err != nil {
 		return err
 	}
@@ -148,10 +201,10 @@ func (client *Client) getCertificate() error {
 	certPool := x509.NewCertPool()
 	certPool.AddCert(caCert)
 
-	client.caPool = certPool
+	client.caPool = &certPool
 
 	opts := x509.VerifyOptions{
-		Roots: client.caPool,
+		Roots: *client.caPool,
 	}
 
 	_, err = client.myCertificate.Verify(opts)

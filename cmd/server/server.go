@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -9,18 +10,21 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 
 	"github.com/Despance/secure-messenger/crypt"
 )
 
 type Server struct {
-	listenAddr    string
-	caAdress      string
-	privKey       *rsa.PrivateKey
-	myCertificate *x509.Certificate
-	certPool      *x509.CertPool
-	listener      net.Listener
-	quit          chan struct{}
+	listenAddr        string
+	caAdress          string
+	privKey           *rsa.PrivateKey
+	myCertificate     *x509.Certificate
+	clientCertificate *x509.Certificate
+	certPool          **x509.CertPool
+	listener          net.Listener
+	rsaChannel        crypt.SimpleRSA
+	quit              chan struct{}
 }
 
 func NewServer(listenAddr string, caAdress string) *Server {
@@ -60,17 +64,67 @@ func (server *Server) Accept() {
 		}
 		fmt.Println("Connection accepted", conn.LocalAddr())
 
+		server.exchangeCertificates(conn)
+
+		pubKey, ok := server.clientCertificate.PublicKey.(*rsa.PublicKey)
+		if !ok {
+			panic("Key error")
+		}
+		server.rsaChannel = crypt.NewSimpleRSA(*server.privKey, *pubKey)
+
 		go server.Listen(conn)
-		n, err := conn.Write([]byte("Hello you are connected to the Server"))
-		if err != nil {
-			fmt.Print(err, n)
+		scanner := bufio.NewScanner(os.Stdin)
+
+		for scanner.Scan() {
+
+			message := scanner.Text()
+			server.Write(message, conn)
+		}
+
+		if err := scanner.Err(); err != nil {
+			fmt.Println("Error on reading: ", err)
 		}
 
 	}
 }
 
+func (server *Server) exchangeCertificates(conn net.Conn) {
+	pem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.myCertificate.Raw})
+
+	_, err := conn.Write(pem)
+	if err != nil {
+		fmt.Println("Error on writing", err)
+	}
+
+	readBytes := make([]byte, 8192)
+
+	n, err := conn.Read(readBytes)
+	if err != nil {
+		fmt.Println("error on parse certificate", err)
+		return
+	}
+
+	msg := readBytes[:n]
+	cert, err := parseCertificate(&msg)
+	if err != nil {
+		fmt.Println("err on parse", err)
+	}
+
+	_, err = cert.Verify(x509.VerifyOptions{
+		Roots: *server.certPool,
+	})
+	if err != nil {
+		fmt.Println("not valid cert", err)
+		return
+	}
+
+	server.clientCertificate = cert
+	fmt.Println("Certificate exchange is valid")
+}
+
 func (server *Server) Listen(conn net.Conn) {
-	buf := make([]byte, 2048)
+	buf := make([]byte, 8192)
+
 	for {
 		msgSize, err := conn.Read(buf)
 		if err != nil {
@@ -83,14 +137,19 @@ func (server *Server) Listen(conn net.Conn) {
 		}
 		msg := buf[:msgSize]
 
-		fmt.Println(string(msg))
+		fmt.Println("CipherText:", string(msg))
 
-		server.Write("Got your message", conn)
+		clearText := server.rsaChannel.Decrypt(msg)
+
+		fmt.Println("clearText:", clearText)
+
 	}
 }
 
 func (server *Server) Write(str string, conn net.Conn) {
-	n, err := conn.Write([]byte(str))
+	cipherText := server.rsaChannel.Encrypt(str)
+
+	n, err := conn.Write(cipherText)
 	if err != nil {
 		fmt.Println("Error on writing n bytes:", n, " err:", err)
 	}
@@ -112,8 +171,8 @@ func main() {
 	}
 }
 
-func parseCertificate(certBytes []byte) (*x509.Certificate, error) {
-	certPem, a := pem.Decode(certBytes)
+func parseCertificate(certBytes *[]byte) (*x509.Certificate, error) {
+	certPem, a := pem.Decode(*certBytes)
 
 	if certPem == nil {
 		fmt.Println("error cert", string(a))
@@ -130,7 +189,7 @@ func parseCertificate(certBytes []byte) (*x509.Certificate, error) {
 		return nil, errors.New("cant parse certificate")
 	}
 
-	certBytes = a
+	*certBytes = a
 	return certificate, nil
 }
 
@@ -152,12 +211,12 @@ func (server *Server) getCertificate() error {
 		return err
 	}
 
-	server.myCertificate, err = parseCertificate(allBytes)
+	server.myCertificate, err = parseCertificate(&allBytes)
 	if err != nil {
 		return err
 	}
 
-	caCert, err := parseCertificate(allBytes)
+	caCert, err := parseCertificate(&allBytes)
 	if err != nil {
 		return err
 	}
@@ -165,10 +224,10 @@ func (server *Server) getCertificate() error {
 	certPool := x509.NewCertPool()
 	certPool.AddCert(caCert)
 
-	server.certPool = certPool
+	server.certPool = &certPool
 
 	opts := x509.VerifyOptions{
-		Roots: server.certPool,
+		Roots: certPool,
 	}
 
 	_, err = server.myCertificate.Verify(opts)

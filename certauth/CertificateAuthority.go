@@ -138,9 +138,9 @@ func (ca *CertificateAuthority) Listen(conn net.Conn) {
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
-	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.caBytes})
 
-	_, err = conn.Write(append(certPEM, caPEM...))
+	_, err = conn.Write(append(append(append(certPEM, '\n'), caPEM...), '\n'))
 	if err != nil {
 		fmt.Println(err)
 	}
