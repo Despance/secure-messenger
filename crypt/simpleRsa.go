@@ -30,6 +30,7 @@ func (simpleRSA *SimpleRSA) Encrypt(msg string) []byte {
 		fmt.Println("cant encrypt", err)
 		return nil
 	}
+
 	return cipherText
 }
 

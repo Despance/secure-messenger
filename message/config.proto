@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+
+package securechat;
+
+
+
+option go_package = "/message";
+
+
+message Envelope{
+  enum MessageType{
+    CHAT = 0;
+    CERTIFICATE = 1;
+    ACK = 2;
+    OTHER = 3;
+  }
+
+  MessageType type = 1;
+
+  uint64 sequence = 2;
+
+  uint64 timestamp = 3;
+
+
+  oneof payload {
+  ChatMessage chat = 4;
+CertificateMsg cert = 5;
+}
+
+}
+
+
+
+
+message ChatMessage {
+  string sender = 1;
+  uint64 seq = 2;
+  bytes nonce = 3;
+  bytes ciphertext = 4;
+
+}
+
+
+message CertificateMsg{
+  uint32 length = 1;
+  bytes cert =2 ;
+}
+
+
+
