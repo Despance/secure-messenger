@@ -64,12 +64,10 @@ func (client *Client) Connect() error {
 	client.rsaChannel = crypt.NewSimpleRSA(*client.privKey, *pubKey)
 
 	secret := make([]byte, 32)
-
 	rand.Read(secret)
 
 	client.rsaChannel.SendMessage(conn, secret)
-
-	keys, err := hkdf.Key(sha256.New, secret, []byte("Muho loves miyabi (gooning) "), "", 64)
+	keys, err := hkdf.Key(sha256.New, secret, []byte("this is my go project 17"), "", 64)
 
 	client.aesChannel = crypt.NewSimpleAES(keys[0:32], keys[32:64], conn)
 
@@ -81,25 +79,6 @@ func (client *Client) Connect() error {
 func (client *Client) ReadAES() {
 	for {
 		fmt.Println(client.aesChannel.ListenAndDecrypt())
-	}
-}
-
-func (client *Client) Read() {
-	buf := make([]byte, 8192)
-
-	for {
-		n, err := client.connection.Read(buf)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		value := buf[:n]
-		fmt.Println("CipherText:", string(value))
-
-		clearText := client.rsaChannel.Decrypt(value)
-
-		fmt.Println("clearText:", clearText)
 	}
 }
 

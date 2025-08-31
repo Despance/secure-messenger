@@ -7,7 +7,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"net"
 	"os"
 
@@ -78,7 +77,7 @@ func (server *Server) Accept() {
 
 		secret := server.rsaChannel.GetMessage(conn)
 
-		keys, err := hkdf.Key(sha256.New, []byte(secret), []byte("Muho loves miyabi (gooning) "), "", 64)
+		keys, err := hkdf.Key(sha256.New, []byte(secret), []byte("this is my go project 17"), "", 64)
 		if err != nil {
 			fmt.Println("error on hkdf", err)
 			return
@@ -108,39 +107,6 @@ func (server *Server) Accept() {
 func (server *Server) ListenAES() {
 	for {
 		fmt.Println(server.aesChannel.ListenAndDecrypt())
-	}
-}
-
-func (server *Server) Listen(conn net.Conn) {
-	buf := make([]byte, 8192)
-
-	for {
-		msgSize, err := conn.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				fmt.Println("Client disconnected")
-			} else {
-				fmt.Println("Listening error", err)
-			}
-			return
-		}
-		msg := buf[:msgSize]
-
-		fmt.Println("CipherText:", string(msg))
-
-		clearText := server.rsaChannel.Decrypt(msg)
-
-		fmt.Println("clearText:", clearText)
-
-	}
-}
-
-func (server *Server) Write(str string, conn net.Conn) {
-	cipherText := server.rsaChannel.Encrypt(str)
-
-	n, err := conn.Write(cipherText)
-	if err != nil {
-		fmt.Println("Error on writing n bytes:", n, " err:", err)
 	}
 }
 
