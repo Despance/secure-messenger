@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net"
@@ -73,7 +75,15 @@ func (server *Server) Accept() {
 		}
 		server.rsaChannel = crypt.NewSimpleRSA(*server.privKey, *pubKey)
 
-		go server.Listen(conn)
+		secret := server.rsaChannel.GetMessage(conn)
+
+		keys, err := hkdf.Key(sha256.New, []byte(secret), []byte("Muho loves miyabi (gooning) "), "", 64)
+		if err != nil {
+			fmt.Println("error on hkdf", err)
+			return
+		}
+
+		fmt.Println("clientkey:", string(keys[0:31]), "serverkey: ", string(keys[32:63]))
 		scanner := bufio.NewScanner(os.Stdin)
 
 		for scanner.Scan() {

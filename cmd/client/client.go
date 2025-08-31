@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"os"
@@ -60,7 +62,19 @@ func (client *Client) Connect() error {
 	// Open a rsa channel to communicate - exchange shared secret.
 	client.rsaChannel = crypt.NewSimpleRSA(*client.privKey, *pubKey)
 
-	go client.Read()
+	secret := make([]byte, 32)
+
+	rand.Read(secret)
+
+	client.rsaChannel.SendMessage(conn, secret)
+
+	keys, err := hkdf.Key(sha256.New, secret, []byte("Muho loves miyabi (gooning) "), "", 64)
+	if err != nil {
+		fmt.Println("error on hkdf", err)
+		return err
+	}
+
+	fmt.Println("clientkey:", string(keys[0:31]), "serverkey: ", string(keys[32:63]))
 
 	return nil
 }
