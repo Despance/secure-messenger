@@ -20,7 +20,8 @@ type Client struct {
 	quit               chan struct{}
 	privKey            *rsa.PrivateKey
 	certificateManager crypt.CertificateManager
-	rsaChannel         crypt.SimpleRSA
+	rsaChannel         *crypt.SimpleRSA
+	aesChannel         *crypt.SimpleAES
 }
 
 func NewClient(serverAddress string, caAdress string) *Client {
@@ -69,14 +70,18 @@ func (client *Client) Connect() error {
 	client.rsaChannel.SendMessage(conn, secret)
 
 	keys, err := hkdf.Key(sha256.New, secret, []byte("Muho loves miyabi (gooning) "), "", 64)
-	if err != nil {
-		fmt.Println("error on hkdf", err)
-		return err
-	}
 
-	fmt.Println("clientkey:", string(keys[0:31]), "serverkey: ", string(keys[32:63]))
+	client.aesChannel = crypt.NewSimpleAES(keys[0:32], keys[32:64], conn)
+
+	go client.ReadAES()
 
 	return nil
+}
+
+func (client *Client) ReadAES() {
+	for {
+		fmt.Println(client.aesChannel.ListenAndDecrypt())
+	}
 }
 
 func (client *Client) Read() {
@@ -98,15 +103,6 @@ func (client *Client) Read() {
 	}
 }
 
-func (client *Client) Write(str string) {
-	cipherText := client.rsaChannel.Encrypt(str)
-
-	n, err := client.connection.Write([]byte(cipherText))
-	if err != nil {
-		fmt.Println("Error on writing n bytes:", n, " err:", err)
-	}
-}
-
 func main() {
 	client := NewClient(":3131", ":3030")
 
@@ -115,9 +111,9 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for scanner.Scan() {
-
 		message := scanner.Text()
-		client.Write(message)
+
+		client.aesChannel.EncryptAndSend([]byte(message))
 	}
 
 	if err := scanner.Err(); err != nil {

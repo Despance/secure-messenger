@@ -20,7 +20,8 @@ type Server struct {
 	privKey            *rsa.PrivateKey
 	certificateManager crypt.CertificateManager
 	listener           net.Listener
-	rsaChannel         crypt.SimpleRSA
+	rsaChannel         *crypt.SimpleRSA
+	aesChannel         *crypt.SimpleAES
 	quit               chan struct{}
 }
 
@@ -83,19 +84,30 @@ func (server *Server) Accept() {
 			return
 		}
 
-		fmt.Println("clientkey:", string(keys[0:31]), "serverkey: ", string(keys[32:63]))
+		server.aesChannel = crypt.NewSimpleAES(keys[32:64], keys[0:32], conn)
+
+		go server.ListenAES()
+
 		scanner := bufio.NewScanner(os.Stdin)
 
 		for scanner.Scan() {
 
 			message := scanner.Text()
-			server.Write(message, conn)
+
+			server.aesChannel.EncryptAndSend([]byte(message))
+
 		}
 
 		if err := scanner.Err(); err != nil {
 			fmt.Println("Error on reading: ", err)
 		}
 
+	}
+}
+
+func (server *Server) ListenAES() {
+	for {
+		fmt.Println(server.aesChannel.ListenAndDecrypt())
 	}
 }
 

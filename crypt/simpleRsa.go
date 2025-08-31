@@ -19,8 +19,8 @@ type SimpleRSA struct {
 	label             []byte
 }
 
-func NewSimpleRSA(privKey rsa.PrivateKey, oppositePublicKey rsa.PublicKey) SimpleRSA {
-	return SimpleRSA{
+func NewSimpleRSA(privKey rsa.PrivateKey, oppositePublicKey rsa.PublicKey) *SimpleRSA {
+	return &SimpleRSA{
 		privKey:           privKey,
 		oppositePublicKey: oppositePublicKey,
 		hash:              sha256.New(),
